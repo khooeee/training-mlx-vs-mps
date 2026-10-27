@@ -101,17 +101,42 @@ def plot_throughput(runs):
     style(ax)
     ax.grid(True, axis="x", color=GRID)
     ax.grid(False, axis="y")
-    vals = [runs[n]["summary"]["tokens_per_s"] for n in rows]
+    vals = [runs[n]["summary"]["tokens_per_s_sustained"] for n in rows]
     y = list(range(len(rows)))[::-1]
     ax.barh(y, vals, color=[SERIES[key(n)] for n in rows], height=0.6, edgecolor=SURFACE, linewidth=2)
     for yi, v in zip(y, vals):
         ax.text(v, yi, f"  {v:,.0f}", va="center", color=INK, fontsize=9)
     ax.set_yticks(y, [f"{LABEL[key(n).split('-')[0]]}, {precision(n)}" for n in rows], color=INK)
-    ax.set_xlabel("Training throughput, tokens/s (median step, after warmup)", color=INK_2, fontsize=9)
+    ax.set_xlabel("Sustained training throughput, tokens/s (median step, second half of run)", color=INK_2, fontsize=9)
     ax.set_xlim(0, max(vals) * 1.15)
     ax.set_title(f"Training throughput, {C.MACHINE}", color=INK, fontsize=11, loc="left")
     fig.tight_layout()
     fig.savefig(FIG / "throughput.png", dpi=150, facecolor=SURFACE)
+    plt.close(fig)
+
+
+def plot_throughput_over_time(runs):
+    """Per-step throughput against elapsed time: shows warmup and thermal throttling."""
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4), facecolor=SURFACE)
+    for ax, (prec, names) in zip(axes, PAIRS.items()):
+        style(ax)
+        shown = [n for n in names + (tuple(TF32) if prec == "fp32" else ()) if runs.get(n)]
+        for n in shown:
+            log = runs[n]["log"]
+            elapsed, t = [], 0.0
+            for r in log:
+                t += r["step_time"]
+                elapsed.append(t / 60)
+            ax.plot(elapsed, [r["tokens"] / r["step_time"] for r in log], color=SERIES[key(n)], linewidth=2,
+                    label=LABEL[key(n)])
+        ax.set_ylim(bottom=0)
+        ax.set_title(f"Throughput over the run, {prec}", color=INK, fontsize=11, loc="left")
+        ax.set_xlabel("Elapsed training time (min)", color=INK_2, fontsize=9)
+        ax.set_ylabel("Tokens/s (per step)", color=INK_2, fontsize=9)
+        if len(shown) >= 2:
+            ax.legend(frameon=False, fontsize=9, labelcolor=INK)
+    fig.tight_layout()
+    fig.savefig(FIG / "throughput_over_time.png", dpi=150, facecolor=SURFACE)
     plt.close(fig)
 
 
@@ -126,6 +151,7 @@ def machine_report():
     plot_losses(runs)
     plot_loss_diff(runs)
     plot_throughput(runs)
+    plot_throughput_over_time(runs)
 
     cfg = runs[present[0]]["config"]
     versions = {}
@@ -144,28 +170,33 @@ def machine_report():
         "",
         "## Speed",
         "",
-        "| Run | micro-batch × accum | tokens/s | median step (s) | p90 step (s) | first step (s) | peak memory (GB) | swap Δ (MB) | wall time (min) |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Run | micro-batch × accum | tokens/s, sustained (2nd half) | tokens/s, after warmup | p90 step (s) | first step (s) | thermal level: steps | peak memory (GB) | swap Δ (MB) | wall time (min) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for n in present:
         s, c = runs[n]["summary"], runs[n]["config"]
-        wall = sum(x["step_time"] for x in runs[n]["log"]) / 60
+        thermal = ", ".join(f"{k}: {v}" for k, v in s.get("thermal_levels", {}).items()) or "–"
         out.append(
-            f"| {n} | {c['micro_batch']} × {c['grad_accum']} | {s['tokens_per_s']:,.0f} | {s['step_time_median_s']:.2f} | "
-            f"{s['step_time_p90_s']:.2f} | {s['first_step_s']:.1f} | {s['peak_footprint_gb']:.1f} | "
-            f"{s['swap_used_mb_end'] - c['swap_used_mb_start']:+.0f} | {wall:.0f} |"
+            f"| {n} | {c['micro_batch']} × {c['grad_accum']} | **{s['tokens_per_s_sustained']:,.0f}** | {s['tokens_per_s']:,.0f} | "
+            f"{s['step_time_p90_s']:.2f} | {s['first_step_s']:.1f} | {thermal} | {s['peak_footprint_gb']:.1f} | "
+            f"{s['swap_used_mb_end'] - c['swap_used_mb_start']:+.0f} | {s['wall_time_s'] / 60:.0f} |"
         )
-    out += ["", "Peak memory: on macOS the process's physical footprint (CPU + unified GPU memory) as the OS "
+    out += ["", "Sustained = median step over the second half of the run, after the machine reaches its thermal steady "
+            "state; this is the fair comparison on a machine that throttles. After warmup = median step after the first "
+            f"{C.WARMUP_EXCLUDE} steps. Thermal level: macOS thermal pressure (0 nominal, 1 moderate, 2 heavy) or NVIDIA "
+            "GPU °C, sampled after each step. Every run starts after the machine returns to baseline.", "",
+            "Peak memory: on macOS the process's physical footprint (CPU + unified GPU memory) as the OS "
             "accounts it; on Linux the GPU memory nvidia-smi attributes to the process. Either way, the same "
             "measurement for every framework on the machine.", ""]
     for prec, (a, b) in PAIRS.items():
         if runs[a] and runs[b]:
-            ratio = runs[a]["summary"]["tokens_per_s"] / runs[b]["summary"]["tokens_per_s"]
-            out.append(f"- **{prec}: MLX / PyTorch throughput = {ratio:.2f}×**")
+            sa, sb = runs[a]["summary"], runs[b]["summary"]
+            out.append(f"- **{prec}: MLX / PyTorch = {sa['tokens_per_s_sustained'] / sb['tokens_per_s_sustained']:.2f}× sustained** "
+                       f"({sa['tokens_per_s'] / sb['tokens_per_s']:.2f}× after warmup)")
     for t, base in TF32.items():
         if runs[t] and runs[base]:
-            out.append(f"- {t} vs {base}: {runs[t]['summary']['tokens_per_s'] / runs[base]['summary']['tokens_per_s']:.2f}×")
-    out += ["", "![throughput](figures/throughput.png)", ""]
+            out.append(f"- {t} vs {base}: {runs[t]['summary']['tokens_per_s_sustained'] / runs[base]['summary']['tokens_per_s_sustained']:.2f}× sustained")
+    out += ["", "![throughput](figures/throughput.png)", "", "![throughput over time](figures/throughput_over_time.png)", ""]
 
     out += ["## Loss agreement", "", "| Pair | steps | final loss MLX | final loss PyTorch | max per-step Δ loss | mean per-step Δ loss |",
             "|---|---|---|---|---|---|"]
@@ -235,11 +266,11 @@ def comparison():
     table = {m.name: {n: load_run(m, n) for n in C.ALL_RUNS} for m in machines}
     names = [n for n in C.ALL_RUNS if any(table[m][n] for m in table)]
     out = ["# Training throughput across machines", "",
-           "Tokens/s (median step after warmup). Same model, data, order and hyperparameters everywhere; "
-           "per-machine details in `runs/<machine>/REPORT.md`.", "",
+           "Sustained tokens/s (median step over the second half of each run). Same model, data, order and "
+           "hyperparameters everywhere; per-machine details in `runs/<machine>/REPORT.md`.", "",
            "| Run | " + " | ".join(table) + " |", "|---|" + "---|" * len(table)]
     for n in names:
-        cells = [f"{r['summary']['tokens_per_s']:,.0f} (mb {r['config']['micro_batch']})" if (r := table[m][n]) else "–"
+        cells = [f"{r['summary']['tokens_per_s_sustained']:,.0f} (mb {r['config']['micro_batch']})" if (r := table[m][n]) else "–"
                  for m in table]
         out.append(f"| {n} | " + " | ".join(cells) + " |")
     out += ["", "Final training loss (should agree across machines for the same precision):", "",

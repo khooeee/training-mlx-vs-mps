@@ -98,12 +98,13 @@ def main():
             "step": step, "loss": loss_sum.item() / cfg.grad_accum, "lr": lr,
             "grad_norm": norm.item(), "step_time": step_time, "tokens": cfg.tokens_per_step,
             "footprint": cur_mem, "peak_footprint": peak_mem, "framework_peak_mem": framework_mem(),
+            "thermal": C.thermal_level(),
         }
         records.append(rec)
         log.log(**rec)
         print(f"step {step:4d} loss {rec['loss']:.4f} gnorm {rec['grad_norm']:.3f} "
               f"{step_time:.2f}s {cfg.tokens_per_step / step_time:.0f} tok/s "
-              f"peak {peak_mem / 1e9:.1f}GB", flush=True)
+              f"peak {peak_mem / 1e9:.1f}GB thermal {rec['thermal']}", flush=True)
 
     summary = {**C.summarize(records), "swap_used_mb_end": C.swap_used_mb(), "thermal_end": C.thermal_state()}
     if args.save:

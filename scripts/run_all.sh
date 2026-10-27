@@ -19,7 +19,11 @@ MACHINE=$($PY -c "import sys; sys.path.insert(0, 'scripts'); import common; prin
 LOGDIR=runs/$MACHINE/logs
 mkdir -p "$LOGDIR"
 LOG=$LOGDIR/run_all.log
-COOLDOWN=60  # seconds idle between runs so each starts from a similar thermal state
+# Every run starts from the same thermal state: wait until the machine reports a baseline
+# (macOS thermal pressure nominal; NVIDIA GPU below 50 °C), then idle a little longer.
+# This matters most on fanless Macs, which throttle within minutes of sustained GPU load.
+COOLDOWN_EXTRA=120  # seconds idle after reaching baseline
+COOLDOWN_CAP=1800   # never wait longer than this for baseline
 
 if [ -z "${FRAMEWORKS:-}" ]; then
   if $PY -c "import mlx.core" 2>/dev/null; then FRAMEWORKS="mlx torch"; else FRAMEWORKS="torch"; fi
@@ -33,12 +37,23 @@ step() {
   echo "$(date '+%F %T') end   $name (exit $?)" >> "$LOG"
 }
 
+is_cool() {
+  $PY -c "import sys; sys.path.insert(0, 'scripts'); import common; sys.exit(0 if common.is_cool() else 1)"
+}
+
+cool_down() {
+  local start=$SECONDS
+  until is_cool || [ $((SECONDS - start)) -ge $COOLDOWN_CAP ]; do sleep 15; done
+  echo "$(date '+%F %T') cooled to baseline in $((SECONDS - start))s$(is_cool || echo ' (cap reached, still warm)'); idling ${COOLDOWN_EXTRA}s" >> "$LOG"
+  sleep $COOLDOWN_EXTRA
+}
+
 train() {  # train <framework> <dtype> <micro_batch> [extra args...]
   local fw=$1 dtype=$2 mb=$3; shift 3
   local name="$fw-$([ "$dtype" = float32 ] && echo fp32 || echo bf16)"
   [[ " $* " == *" --tf32 "* ]] && name="$name-tf32"
+  cool_down
   step "$name" $PY "scripts/train_$fw.py" --dtype "$dtype" --micro-batch "$mb" --total-steps "$STEPS" --save --run-name "$name" "$@"
-  sleep $COOLDOWN
 }
 
 echo "$(date '+%F %T') run_all machine=$MACHINE frameworks='$FRAMEWORKS' fp32_mb=$FP32_MB bf16_mb=$BF16_MB steps=$STEPS" >> "$LOG"

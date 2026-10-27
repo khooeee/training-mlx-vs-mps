@@ -7,11 +7,32 @@ take a PyTorch-trained model into MLX for inference.
 
 - **Model:** [Qwen3-0.6B-Base](https://huggingface.co/Qwen/Qwen3-0.6B-Base), all 0.6B parameters trained (no LoRA)
 - **Data:** full-text arXiv papers ([Common Pile `arxiv_papers_filtered`](https://huggingface.co/datasets/common-pile/arxiv_papers_filtered), one shard)
-- **Machine:** Apple M5 (10-core GPU), 32 GB unified memory, macOS 27.0.1
+- **Machine:** MacBook Air, Apple M5 (10-core GPU), 32 GB unified memory, macOS 27.0.1. It's fanless, so it
+  throttles under sustained load (see item 8 below).
 
 ## Results
 
-_Pending: the overnight runs fill this in. Every table and figure is in [REPORT.md](REPORT.md)._
+_Headline numbers pending: the overnight runs fill this in. Every table and figure for the M5 is in
+[runs/apple-m5-32gb/REPORT.md](runs/apple-m5-32gb/REPORT.md); cross-machine numbers are in
+[runs/COMPARISON.md](runs/COMPARISON.md)._
+
+### Where the time goes (M5, `scripts/diag_step_phases.py`)
+
+Seconds per 1024-token micro-batch, synchronizing between phases. "Optimizer" runs once per 16 micro-batches.
+
+| | forward | forward + backward | optimizer |
+|---|---|---|---|
+| MLX fp32 | 0.76 | 1.99 | 0.67 |
+| PyTorch MPS fp32, SDPA attention (HF default) | 0.59 | 2.71 | 0.22 |
+| PyTorch MPS fp32, eager attention | 0.86 | 3.11 | 0.41 |
+| MLX bf16 | 0.18 | 0.71 | 0.32 |
+| PyTorch MPS bf16, SDPA attention (HF default) | 0.28 | 1.95 | 0.21 |
+| PyTorch MPS bf16, eager attention | 0.52 | 1.68 | 0.22 |
+
+PyTorch MPS has the faster forward pass in fp32 and the faster optimizer step in both precisions. The gap
+is in the backward pass: about 1.7× slower than MLX in fp32 and about 3× slower in bf16. In bf16, SDPA's
+backward on MPS is slow enough that eager attention is faster overall. The training runs keep HF's default
+(SDPA). Eager would make PyTorch bf16 roughly 15% faster, which doesn't change the conclusion.
 
 ## What "apples to apples" means here
 
@@ -67,28 +88,45 @@ These all came up while building this. Each one would have skewed the result wit
 7. **Timing lazy and async execution.** MLX is lazy: each step `mx.eval`s parameters and optimizer state.
    MPS is async: each step ends with `torch.mps.synchronize()`. The first 20 steps (compilation, shader
    caching) are excluded from throughput.
+8. **Thermal throttling on a fanless Mac.** Within minutes of sustained GPU load, macOS thermal pressure
+   reaches "heavy" (`notifyutil -g com.apple.system.thermalpressurelevel` returns 2). The same MLX fp32 step
+   then slowed from 25.6 s to about 40 s. In the 3-step calibration probes, MLX ran first on a cool chip and
+   PyTorch ran later on a hot one, which made MLX look about 1.6× faster in fp32 when part of that was
+   temperature. So `run_all.sh` waits for thermal pressure to return to nominal (plus 2 minutes) before every
+   run. Each step logs its thermal level, and the headline number is **sustained** throughput: the median step
+   over the second half of a run, at the thermal steady state.
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/). `requirements.txt` is the exact environment that produced the results.
+Requires [uv](https://docs.astral.sh/uv/). `requirements-macos.txt` is the exact environment that produced
+the M5 results.
 
 ```bash
 uv venv --python 3.13 .venv
-uv pip install --python .venv/bin/python -r requirements.txt
+uv pip install --python .venv/bin/python -r requirements-macos.txt
 .venv/bin/python scripts/download.py               # model + data at pinned revisions (~1.4 GB)
 .venv/bin/python -I scripts/prepare_data.py        # tokenize + pack: 24M train / 525k arXiv val / 298k wikitext tokens
 ```
 
+`data/meta.json` records a sha256 of each token array. Matching values on two machines mean both trained
+on identical tokens.
+
 ## Reproduce
 
-```bash
-.venv/bin/python scripts/parity.py model           # fp32 forward/backward agreement -> runs/parity_model.json
-.venv/bin/python scripts/probe.py                  # memory + speed per (setup, micro-batch) -> runs/probe_summary.json
+Each machine writes to `runs/<machine>/`, e.g. `runs/apple-m5-32gb/`. Set `BENCH_MACHINE` to override the
+auto-detected name.
 
-# Everything else, one job at a time (~5-6 h on an M5): 5 training runs, conversion, perplexity, report.
-# Arguments: fp32 micro-batch, bf16 micro-batch, optimizer steps per run.
-caffeinate -is scripts/run_all.sh <fp32_mb> <bf16_mb> <steps>
-tail -f runs/logs/run_all.log
+```bash
+.venv/bin/python scripts/matmul_check.py           # precision + TFLOPS per framework/dtype (catches TF32 defaults)
+.venv/bin/python scripts/parity.py model           # fp32 forward/backward agreement
+.venv/bin/python scripts/probe.py                  # memory + speed per (setup, micro-batch)
+.venv/bin/python scripts/diag_step_phases.py       # time split: forward / backward / optimizer
+
+# Everything else, one job at a time (~6 h on the M5 Air, including cooldowns): 5 training runs, conversion,
+# perplexity, report.
+# Arguments: fp32 micro-batch, bf16 micro-batch, optimizer steps per run. The M5 results used:
+caffeinate -is scripts/run_all.sh 1 1 100
+tail -f runs/apple-m5-32gb/logs/run_all.log
 
 # Optional: cold-load timing (flushes the file cache before each load; asks for your password)
 .venv/bin/python scripts/convert.py cold && .venv/bin/python scripts/report.py
@@ -97,13 +135,46 @@ tail -f runs/logs/run_all.log
 Individual pieces:
 
 ```bash
-.venv/bin/python scripts/train_mlx.py   --dtype float32 --micro-batch 2 --total-steps 200 --save
-.venv/bin/python scripts/train_torch.py --dtype float32 --micro-batch 2 --total-steps 200 --save
-.venv/bin/python scripts/parity.py runs mlx-fp32 torch-fp32   # per-step loss / grad-norm agreement
-.venv/bin/python scripts/convert.py                           # -> checkpoints/<run>-mlx (bf16), timed
-.venv/bin/python scripts/eval_ppl.py                          # perplexity, all models in mlx-lm
-.venv/bin/python scripts/report.py                            # -> REPORT.md, figures/
+.venv/bin/python scripts/train_mlx.py   --dtype float32 --micro-batch 1 --total-steps 100 --save
+.venv/bin/python scripts/train_torch.py --dtype float32 --micro-batch 1 --total-steps 100 --save
+.venv/bin/python scripts/train_mlx.py   --dtype float32 --tf32 ...  # MLX's default fp32 behaviour on M5
+.venv/bin/python scripts/parity.py runs mlx-fp32 torch-fp32         # per-step loss / grad-norm agreement
+.venv/bin/python scripts/convert.py                                 # -> checkpoints/<run>-mlx (bf16), timed
+.venv/bin/python scripts/eval_ppl.py                                # perplexity, all models in mlx-lm
+.venv/bin/python scripts/report.py   # -> runs/<machine>/REPORT.md + figures/, and runs/COMPARISON.md
 ```
+
+## Running on Linux + NVIDIA (PyTorch only)
+
+The same scripts run PyTorch on CUDA. `run_all.sh` detects that MLX isn't installed, runs only the
+PyTorch trainings (fp32, bf16, and fp32 with TF32, which CUDA supports), and skips the MLX conversion and
+perplexity steps. `report.py` then writes `runs/COMPARISON.md`, a table of throughput and final loss for
+every run on every machine.
+
+```bash
+uv venv --python 3.13 .venv
+# Pick the CUDA wheel index for your driver from pytorch.org (RTX 50-series needs a CUDA 12.8+ build)
+uv pip install --python .venv/bin/python torch --index-url https://download.pytorch.org/whl/<cuXXX>
+uv pip install --python .venv/bin/python transformers==5.21.0 huggingface_hub numpy pyarrow matplotlib
+uv pip freeze --python .venv/bin/python > requirements-cuda.txt
+.venv/bin/python scripts/download.py && .venv/bin/python -I scripts/prepare_data.py
+jq .sha256 data/meta.json                    # must match the M5 checksums below
+
+.venv/bin/python scripts/matmul_check.py
+.venv/bin/python scripts/probe.py            # pick the largest micro-batch that fits; 1 matches the M5 runs
+systemd-inhibit --what=sleep:idle scripts/run_all.sh 1 1 100
+```
+
+transformers is pinned to the M5 run's version so the model code is the same. For a laptop GPU, record the power mode. The GPU power limit depends on the laptop and is logged in
+each run's `config.json` along with the driver and CUDA versions.
+
+Data checksums from the M5 (`data/` isn't committed):
+
+| Array | sha256 |
+|---|---|
+| train | `49d77310cefeb9001189695540455a2c87359015403baeb06040b0db30006ebf` |
+| val_arxiv | `6b319453f46ba0b9ea117d7c2bfa95b1dfea9e72f21c4e5bf899d7569d223eba` |
+| val_wikitext | `fa1829bda24d0f07f43b8645c56e50c367206a016f53970fe12386e20187ecd3` |
 
 ## Compare model outputs
 
@@ -135,21 +206,26 @@ The perplexity table is the quantitative version of that check.
 
 ```
 scripts/
-  download.py      model + data at pinned revisions
-  prepare_data.py  tokenize once, pack 1024+1-token rows, split train/val by paper
-  common.py        shared config, data order, LR schedule, logging, OS memory/swap/thermal readouts
-  train_mlx.py     MLX trainer      } mirror each other step for step
-  train_torch.py   PyTorch trainer  }
-  parity.py        forward/backward agreement; per-step run agreement
-  probe.py         memory + throughput per micro-batch
-  run_all.sh       the overnight sequence
-  convert.py       timed save -> mlx_lm.convert (bf16) -> load; torch->MLX transfer check; cold loads
-  eval_ppl.py      perplexity of every model in mlx-lm
-  report.py        REPORT.md + figures/
-  compare.py       side-by-side greedy generations
-prompts.txt        prompts for compare.py
-runs/<run>/        config.json, log.jsonl (per step), summary.json   (committed)
-figures/           generated charts
+  download.py           model + data at pinned revisions
+  prepare_data.py       tokenize once, pack 1024+1-token rows, split train/val by paper, checksums
+  common.py             shared config, data order, LR schedule, logging; machine id and memory/swap/thermal
+                        readouts for macOS and Linux/NVIDIA
+  train_mlx.py          MLX trainer                    } mirror each other step for step
+  train_torch.py        PyTorch trainer (MPS or CUDA)  }
+  matmul_check.py       matmul precision + TFLOPS per framework/dtype
+  parity.py             forward/backward agreement; per-step run agreement
+  probe.py              memory + throughput per micro-batch
+  diag_step_phases.py   forward / backward / optimizer time split
+  run_all.sh            the full sequence for one machine
+  convert.py            timed save -> mlx_lm.convert (bf16) -> load; torch->MLX transfer check; cold loads
+  eval_ppl.py           perplexity of every model in mlx-lm
+  report.py             per-machine REPORT.md + figures, cross-machine COMPARISON.md
+  compare.py            side-by-side greedy generations
+prompts.txt             prompts for compare.py
+runs/
+  COMPARISON.md         throughput and final loss, every run on every machine
+  <machine>/            REPORT.md, figures/, parity/probe/diag/convert/eval JSON
+    <run>/              config.json, log.jsonl (per step), summary.json
 data/ models/ checkpoints/   large, regenerable (gitignored)
 ```
 
@@ -157,7 +233,8 @@ data/ models/ checkpoints/   large, regenerable (gitignored)
 
 The result holds for this setup only:
 
-- One small model (0.6B) on one machine (M5, 32 GB).
+- One small model (0.6B), at micro-batch 1 (the largest PyTorch MPS fits in fp32 without swapping; the
+  fastest for both frameworks in bf16).
 - These library versions.
 - Hand-written training loops. The stock trainers (`mlx_lm.lora --fine-tune-type full`, the HF Trainer)
   differ in batching, padding and logging overhead.

@@ -217,9 +217,29 @@ def swap_used_mb():
 
 def thermal_state():
     if IS_MAC:
-        return " | ".join(line.strip() for line in _run(["pmset", "-g", "therm"]).splitlines() if line.strip())
+        return f"thermal pressure {thermal_level()} (0 nominal, 1 moderate, 2 heavy, 3 trapping, 4 sleeping)"
     gpu = _nvidia("temperature.gpu,clocks.sm,clocks.max.sm,power.draw,power.limit")
     return f"gpu {gpu[0]}C, sm clock {gpu[1]}/{gpu[2]} MHz, power {gpu[3]}/{gpu[4]} W" if gpu else ""
+
+
+def is_cool():
+    """True once the machine is back to a baseline thermal state (run_all.sh waits for this between runs)."""
+    level = thermal_level()
+    return level is None or (level == 0 if IS_MAC else level < 50)
+
+
+def thermal_level():
+    """Cheap per-step throttling indicator.
+
+    macOS: system thermal pressure level (0 nominal, 1 moderate, 2 heavy, 3 trapping, 4 sleeping); a
+    fanless Mac reaches 2 within minutes of sustained GPU load and slows down. Linux/NVIDIA: GPU
+    temperature in °C.
+    """
+    if IS_MAC:
+        out = _run(["notifyutil", "-g", "com.apple.system.thermalpressurelevel"]).split()
+        return int(out[-1]) if out and out[-1].isdigit() else None
+    gpu = _nvidia("temperature.gpu")
+    return int(gpu[0]) if gpu else None
 
 
 # --- logging -----------------------------------------------------------------------------
@@ -238,10 +258,18 @@ class RunLog:
 
 
 def summarize(records):
-    """Steady-state throughput and memory from per-step log records."""
+    """Throughput and memory from per-step log records.
+
+    tokens_per_s: median step after the first WARMUP_EXCLUDE steps (compile, shader caching).
+    tokens_per_s_sustained: median step over the second half of the run, when a fanless machine
+    has reached its throttled steady state. That is the number to compare across runs of
+    different lengths on a machine that throttles.
+    """
     steady = [r for r in records if r["step"] >= WARMUP_EXCLUDE] or records
+    late = records[len(records) // 2 :]
     times = np.array([r["step_time"] for r in steady])
     toks = steady[0]["tokens"]
+    thermal = [r.get("thermal") for r in records if r.get("thermal") is not None]
     return {
         "steps": len(records),
         "steady_steps": len(steady),
@@ -249,6 +277,9 @@ def summarize(records):
         "step_time_median_s": float(np.median(times)),
         "step_time_p90_s": float(np.percentile(times, 90)),
         "tokens_per_s": toks / float(np.median(times)),
+        "tokens_per_s_sustained": toks / float(np.median([r["step_time"] for r in late])),
+        "wall_time_s": float(sum(r["step_time"] for r in records)),
+        "thermal_levels": {str(v): thermal.count(v) for v in sorted(set(thermal))},
         "peak_footprint_gb": max(r["peak_footprint"] or 0 for r in records) / 1e9,
         "final_loss": records[-1]["loss"],
     }
