@@ -73,8 +73,8 @@ backward on MPS is slow enough that eager attention is faster overall. The train
 
 ### Reference point: RTX 5090 Laptop GPU (PyTorch CUDA)
 
-The same PyTorch runs on a System76 Bonobo WS laptop: RTX 5090 Laptop GPU (24 GB, 150 W default power
-limit, 175 W with Dynamic Boost), Intel Core Ultra 9 275HX, Linux 7.2, driver 595.104.02, CUDA 13.0, power
+The same PyTorch runs on a System76 Bonobo WS laptop: RTX 5090 Laptop GPU (24 GB, 150 W power
+limit; Dynamic Boost to 175 W not working, see below), Intel Core Ultra 9 275HX, Linux 7.2, driver 595.104.02, CUDA 13.0, power
 profile "Performance", on AC. Same torch (2.14.1, `+cu130` build), transformers and other package versions as
 the M5 (`requirements-cuda.txt`), and the same token arrays (sha256 match). This compares hardware, not frameworks:
 MLX isn't run here.
@@ -93,8 +93,12 @@ Every table and figure: [runs/rtx-5090-laptop-gpu-24gb/REPORT.md](runs/rtx-5090-
   and 0.0008 (bf16), the same agreement as MLX vs PyTorch on the M5.
 - **TF32 is 1.40× faster than true fp32 on CUDA** and reaches the same loss (1.7362 vs 1.7365), matching what
   MLX's TF32 showed on the M5.
-- **No throttling.** With a fan, the GPU settled at 70–74 °C and the first step was as fast as the median.
-  Power stayed at 142–147 W, below the 150 W default, so Dynamic Boost never engaged.
+- **No thermal throttling, but power-limited.** With a fan, the GPU settled at 70–74 °C and the first step
+  was as fast as the median. Power ran at 142–147 W, against a 150 W cap. Dynamic Boost (up to 175 W) doesn't
+  work on this laptop under Linux: `nvidia-powerd` fails at startup with `Failed to get SysPwrLimitGetInfo`.
+  A synthetic bf16 matmul load holds at 150 W with NVIDIA's software power cap active and SM clocks around
+  1850 of 3090 MHz, at only about 60 °C. The runs didn't log the power-cap reason, so whether training hit
+  the cap isn't recorded, but its clocks (1840–2140 MHz) suggest it did.
 - **Micro-batch 1 understates the 5090.** It matches the M5 runs, but leaves the GPU underused; the
   matmul check reaches 20 TFLOPS fp32 and 28 bf16. A larger micro-batch would widen the gap.
 
