@@ -40,8 +40,7 @@ def main():
     outputs = {}
     for name in args.models:
         model, tokenizer = mlx_lm.load(str(model_path(name)))
-        # Greedy decoding (the default sampler), raw prompt with no chat template.
-        outputs[name] = [mlx_lm.generate(model, tokenizer, prompt, max_tokens=args.max_tokens) for prompt in prompts]
+        outputs[name] = [continue_text(model, tokenizer, prompt, args.max_tokens) for prompt in prompts]
         del model
         mx.clear_cache()
 
@@ -50,8 +49,19 @@ def main():
         print(f"PROMPT: {prompt!r}")
         for name in args.models:
             print(f"\n--- {name}")
-            print(textwrap.fill(prompt + outputs[name][i], width=100, replace_whitespace=False))
+            print(textwrap.fill(outputs[name][i], width=100, replace_whitespace=False))
         print()
+
+
+def continue_text(model, tokenizer, prompt, max_tokens):
+    """Greedy continuation of the raw prompt (no chat template), returned with the prompt.
+
+    Decodes prompt and continuation together: decoding the continuation alone drops the
+    leading space of its first word.
+    """
+    prompt_ids = tokenizer.encode(prompt)
+    new_ids = [r.token for r in mlx_lm.stream_generate(model, tokenizer, prompt_ids, max_tokens=max_tokens)]
+    return tokenizer.decode(prompt_ids + new_ids)
 
 
 if __name__ == "__main__":

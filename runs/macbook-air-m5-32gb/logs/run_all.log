@@ -1,0 +1,23 @@
+2026-10-27 00:48:57 run_all machine=apple-m5-32gb frameworks='mlx torch' fp32_mb=1 bf16_mb=1 steps=100
+2026-10-27 00:48:57 cooled to baseline in 0s; idling 120s
+2026-10-27 00:50:57 start mlx-fp32
+2026-10-27 01:44:03 end   mlx-fp32 (exit 0)
+2026-10-27 01:44:49 cooled to baseline in 46s; idling 120s
+2026-10-27 01:46:49 start torch-fp32
+2026-10-27 02:55:04 end   torch-fp32 (exit 0)
+2026-10-27 02:55:50 cooled to baseline in 46s; idling 120s
+2026-10-27 02:57:50 start mlx-bf16
+2026-10-27 03:13:54 end   mlx-bf16 (exit 0)
+2026-10-27 03:14:39 cooled to baseline in 45s; idling 120s
+2026-10-27 03:16:39 start torch-bf16
+2026-10-27 03:57:02 end   torch-bf16 (exit 0)
+2026-10-27 03:57:48 cooled to baseline in 46s; idling 120s
+2026-10-27 03:59:48 start mlx-fp32-tf32
+2026-10-27 04:25:19 end   mlx-fp32-tf32 (exit 0)
+2026-10-27 04:25:19 start convert
+2026-10-27 04:25:54 end   convert (exit 0)
+2026-10-27 04:25:54 start eval
+2026-10-27 04:37:53 end   eval (exit 0)
+2026-10-27 04:37:53 start report
+2026-10-27 04:37:53 end   report (exit 0)
+2026-10-27 04:37:53 run_all done

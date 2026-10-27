@@ -64,11 +64,14 @@ def plot_losses(runs):
     for ax, (prec, names) in zip(axes, PAIRS.items()):
         style(ax)
         shown = [n for n in names + (tuple(TF32) if prec == "fp32" else ()) if runs.get(n)]
-        for n in shown:
+        # The curves overlap almost exactly, so draw each later series narrower on top of the
+        # earlier ones: every series stays visible as a band.
+        widths = [6, 3.5, 1.5][: len(shown)]
+        for n, w in zip(shown, widths):
             log = runs[n]["log"]
-            ax.plot([r["step"] for r in log], [r["loss"] for r in log], color=SERIES[key(n)], linewidth=2,
-                    label=LABEL[key(n)], alpha=0.9)
-        ax.set_title(f"Training loss, {prec}", color=INK, fontsize=11, loc="left")
+            ax.plot([r["step"] for r in log], [r["loss"] for r in log], color=SERIES[key(n)], linewidth=w,
+                    label=LABEL[key(n)], solid_capstyle="round")
+        ax.set_title(f"Training loss, {prec} (curves overlap)", color=INK, fontsize=11, loc="left")
         ax.set_xlabel("Optimizer step", color=INK_2, fontsize=9)
         ax.set_ylabel("Loss (nats/token)", color=INK_2, fontsize=9)
         if len(shown) >= 2:

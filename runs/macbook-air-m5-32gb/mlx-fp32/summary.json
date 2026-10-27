@@ -1,0 +1,20 @@
+{
+  "steps": 100,
+  "steady_steps": 80,
+  "first_step_s": 26.054141249973327,
+  "step_time_median_s": 31.139655395469163,
+  "step_time_p90_s": 35.31123287986266,
+  "tokens_per_s": 526.1458353320082,
+  "tokens_per_s_sustained": 528.158204241848,
+  "wall_time_s": 3183.1425506242085,
+  "thermal_levels": {
+    "0": 3,
+    "1": 1,
+    "2": 96
+  },
+  "peak_footprint_gb": 16.75414896,
+  "final_loss": 1.736308265477419,
+  "swap_used_mb_end": 1912.0,
+  "thermal_end": "thermal pressure 2 (0 nominal, 1 moderate, 2 heavy, 3 trapping, 4 sleeping)",
+  "save_s": 0.6139452918432653
+}

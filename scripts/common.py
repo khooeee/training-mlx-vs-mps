@@ -138,9 +138,16 @@ def _meminfo_kb(key):
 
 def hardware():
     if IS_MAC:
+        profile = _run(["system_profiler", "SPHardwareDataType"])
+        model = next((l.split(":", 1)[1].strip() for l in profile.splitlines() if "Model Name" in l), "")
+        # lowpowermode 0/1; powermode (Macs with High Power mode) 0 automatic, 1 low, 2 high
+        power = {k: v for k, v in (l.split() for l in _run(["pmset", "-g"]).splitlines()
+                                   if l.split()[:1] in (["lowpowermode"], ["powermode"]))}
         return {
+            "model": model,
             "chip": _run(["sysctl", "-n", "machdep.cpu.brand_string"]),
             "memory_gb": int(_run(["sysctl", "-n", "hw.memsize"]) or 0) / 2**30,
+            "power_mode": power,
         }
     cpu = next((l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name")), "")
     info = {"cpu": cpu, "memory_gb": _meminfo_kb("MemTotal") / 2**20}
@@ -151,14 +158,20 @@ def hardware():
 
 
 def machine_tag():
-    """Directory name for this machine's results, e.g. apple-m5-32gb. Override with BENCH_MACHINE."""
+    """Directory name for this machine's results, e.g. macbook-air-m5-32gb or rtx-5090-laptop-gpu-24gb.
+    Override with BENCH_MACHINE.
+
+    Includes the Mac model because the same chip throttles very differently with and without a fan.
+    """
     if os.environ.get("BENCH_MACHINE"):
         return os.environ["BENCH_MACHINE"]
     hw = hardware()
     if "gpu" in hw:
         name, mem = hw["gpu"].replace("NVIDIA GeForce ", "").replace("NVIDIA ", ""), hw["gpu_memory_gb"]
+    elif IS_MAC:
+        name, mem = f"{hw['model']} {hw['chip'].replace('Apple ', '')}", hw["memory_gb"]
     else:
-        name, mem = hw.get("chip") or platform.machine(), hw["memory_gb"]
+        name, mem = platform.machine(), hw["memory_gb"]
     return re.sub(r"[^a-z0-9]+", "-", f"{name} {round(mem)}gb".lower()).strip("-")
 
 

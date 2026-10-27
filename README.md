@@ -12,9 +12,46 @@ take a PyTorch-trained model into MLX for inference.
 
 ## Results
 
-_Headline numbers pending: the overnight runs fill this in. Every table and figure for the M5 is in
-[runs/apple-m5-32gb/REPORT.md](runs/apple-m5-32gb/REPORT.md); cross-machine numbers are in
-[runs/COMPARISON.md](runs/COMPARISON.md)._
+**On the M5 MacBook Air, MLX trains 1.3× faster than PyTorch MPS in fp32 and 2.5× faster in bf16. Both
+learn exactly the same amount.** With MLX's default fp32 settings (TF32 matmuls), it's 2.6× faster than
+PyTorch fp32, at no measurable cost in quality.
+
+Each run is 100 optimizer steps × 16,384 tokens (1.6M tokens), micro-batch 1. Every table and figure:
+[runs/macbook-air-m5-32gb/REPORT.md](runs/macbook-air-m5-32gb/REPORT.md). Other machines:
+[runs/COMPARISON.md](runs/COMPARISON.md).
+
+| | MLX | PyTorch MPS | MLX / PyTorch |
+|---|---|---|---|
+| **fp32**, sustained tokens/s | 528 | 399 | **1.32×** |
+| **bf16**, sustained tokens/s | 1,655 | 673 | **2.46×** |
+| fp32 with TF32 matmuls (MLX's default on M5), tokens/s | 1,049 | (no TF32 on MPS) | 2.63× vs PyTorch fp32 |
+| Wall time for 1.6M tokens, fp32 / bf16 / TF32 | 53 / 16 / 25 min | 68 / 40 min / – | |
+| Peak memory, fp32 / bf16 (OS footprint) | 16.8 / 10.1 GB | 19.8 / 14.0 GB | MLX uses 15–28% less |
+| Final training loss, fp32 / bf16 | 1.7363 / 1.7535 | 1.7364 / 1.7532 | per-step Δ ≤ 0.001 |
+| arXiv held-out perplexity (base: 5.505), fp32 / bf16 | 5.182 / 5.253 | 5.181 / 5.252 | same |
+| wikitext perplexity (base: 14.129), fp32 / bf16 | 14.814 / 14.299 | 14.795 / 14.304 | same |
+
+![Sustained training throughput](runs/macbook-air-m5-32gb/figures/throughput.png)
+
+What else the runs show:
+
+- **The quality sanity check passes.** Loss curves overlap step for step (largest per-step difference
+  0.0009 in fp32, 0.0010 in bf16), and held-out perplexity matches to 3 significant figures. Training on arXiv
+  cut arXiv perplexity by 6% (5.505 → 5.18) and cost some general-text perplexity on wikitext
+  (14.13 → 14.8), which is normal for continued pretraining.
+- **TF32 is a good default on M5.** MLX's TF32 run reached the same loss (1.7362 vs 1.7363) and perplexity
+  (5.181 vs 5.182) as true fp32, in half the time.
+- **Pure bf16 learned less, as predicted** (arXiv perplexity 5.25 vs 5.18). At LR 2e-5, many weight updates
+  are smaller than bf16 can represent and round away. It also forgot less, for the same reason.
+- **Throttling costs about 13–14% on the Air** for every run except PyTorch bf16 (7%). All runs sat at
+  "heavy" thermal pressure for 83–96% of steps. Measured on its first few steps with a cool chip, MLX's bf16
+  lead would be about 2.7× instead of 2.5×. The fp32 lead is 1.33× either way. A MacBook Pro (with a fan) run
+  will show this directly.
+- **Converting the PyTorch-trained model to MLX takes about 3 seconds:** save 0.9 s, `mlx_lm.convert`
+  1.9 s, load 0.35 s. The converted model gives the same fp32 loss as PyTorch (2.2832 vs 2.2832) on held-out
+  text.
+
+![Throughput over each run](runs/macbook-air-m5-32gb/figures/throughput_over_time.png)
 
 ### Where the time goes (M5, `scripts/diag_step_phases.py`)
 
@@ -90,9 +127,9 @@ These all came up while building this. Each one would have skewed the result wit
    caching) are excluded from throughput.
 8. **Thermal throttling on a fanless Mac.** Within minutes of sustained GPU load, macOS thermal pressure
    reaches "heavy" (`notifyutil -g com.apple.system.thermalpressurelevel` returns 2). The same MLX fp32 step
-   then slowed from 25.6 s to about 40 s. In the 3-step calibration probes, MLX ran first on a cool chip and
-   PyTorch ran later on a hot one, which made MLX look about 1.6× faster in fp32 when part of that was
-   temperature. So `run_all.sh` waits for thermal pressure to return to nominal (plus 2 minutes) before every
+   takes 25.6 s on a cool chip, 31 s once throttled, and about 40 s in a run that starts on a chip still hot
+   from the previous one. In the 3-step calibration probes, MLX ran first on a cool chip and PyTorch ran later
+   on a hot one, which made MLX look about 1.6× faster in fp32. The real figure is 1.3×. So `run_all.sh` waits for thermal pressure to return to nominal (plus 2 minutes) before every
    run. Each step logs its thermal level, and the headline number is **sustained** throughput: the median step
    over the second half of a run, at the thermal steady state.
 
@@ -113,7 +150,7 @@ on identical tokens.
 
 ## Reproduce
 
-Each machine writes to `runs/<machine>/`, e.g. `runs/apple-m5-32gb/`. Set `BENCH_MACHINE` to override the
+Each machine writes to `runs/<machine>/`, e.g. `runs/macbook-air-m5-32gb/`. Set `BENCH_MACHINE` to override the
 auto-detected name.
 
 ```bash
@@ -126,7 +163,7 @@ auto-detected name.
 # perplexity, report.
 # Arguments: fp32 micro-batch, bf16 micro-batch, optimizer steps per run. The M5 results used:
 caffeinate -is scripts/run_all.sh 1 1 100
-tail -f runs/apple-m5-32gb/logs/run_all.log
+tail -f runs/macbook-air-m5-32gb/logs/run_all.log
 
 # Optional: cold-load timing (flushes the file cache before each load; asks for your password)
 .venv/bin/python scripts/convert.py cold && .venv/bin/python scripts/report.py
