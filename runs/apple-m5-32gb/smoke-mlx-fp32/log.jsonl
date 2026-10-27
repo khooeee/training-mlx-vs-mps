@@ -1,0 +1,2 @@
+{"step": 0, "loss": 1.7378092408180237, "lr": 2.0000000000000003e-06, "grad_norm": 5.773571968078613, "step_time": 6.625996750080958, "tokens": 2048, "footprint": 12993644272, "peak_footprint": 13346031416, "framework_peak_mem": 12126784124}
+{"step": 1, "loss": 1.479687750339508, "lr": 4.000000000000001e-06, "grad_norm": 6.622229099273682, "step_time": 4.897178207989782, "tokens": 2048, "footprint": 14579795504, "peak_footprint": 16751789808, "framework_peak_mem": 15382948972}

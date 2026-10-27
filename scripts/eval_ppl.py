@@ -14,7 +14,7 @@ import numpy as np
 import common as C
 
 MODELS = {"base": C.BASE_MODEL} | {
-    run: C.CKPT / f"{run}-mlx" for run in ["mlx-fp32", "torch-fp32", "mlx-bf16", "torch-bf16", "mlx-fp32-tf32"]
+    run: C.CKPT / f"{run}-mlx" for run in C.ALL_RUNS
 }
 BATCH = 8
 

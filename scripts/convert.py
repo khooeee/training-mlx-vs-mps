@@ -21,7 +21,7 @@ import common as C
 
 os.environ.setdefault("MLX_ENABLE_TF32", "0")  # see train_mlx.py
 
-RUNS = ["mlx-fp32", "torch-fp32", "mlx-bf16", "torch-bf16", "mlx-fp32-tf32"]
+RUNS = C.ALL_RUNS
 CONVERT = str(C.ROOT / ".venv" / "bin" / "mlx_lm.convert")
 LOAD_SNIPPET = (
     "import time, mlx.core as mx, mlx_lm; t = time.perf_counter(); "

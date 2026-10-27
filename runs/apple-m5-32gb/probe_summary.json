@@ -1,0 +1,178 @@
+[
+  {
+    "setup": "mlx-fp32",
+    "micro_batch": 1,
+    "ok": true,
+    "step_times": [
+      39.19,
+      30.84,
+      25.65
+    ],
+    "tokens_per_s_last": 638.822232844769,
+    "peak_footprint_gb": 16.756164096,
+    "framework_mem_gb": 15.382949028,
+    "swap_delta_mb": -352.0,
+    "error": null
+  },
+  {
+    "setup": "mlx-fp32",
+    "micro_batch": 2,
+    "ok": true,
+    "step_times": [
+      25.26,
+      25.63,
+      25.97
+    ],
+    "tokens_per_s_last": 630.9557322585058,
+    "peak_footprint_gb": 22.696478184,
+    "framework_mem_gb": 20.227680388,
+    "swap_delta_mb": -8.0,
+    "error": null
+  },
+  {
+    "setup": "mlx-fp32",
+    "micro_batch": 4,
+    "ok": false,
+    "step_times": [
+      26.92
+    ],
+    "tokens_per_s_last": 608.5857797118745,
+    "peak_footprint_gb": 26.506053528,
+    "framework_mem_gb": 24.613993972,
+    "swap_delta_mb": null,
+    "error": [
+      "RuntimeError: [METAL] Command buffer execution failed: Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)."
+    ]
+  },
+  {
+    "setup": "torch-fp32",
+    "micro_batch": 1,
+    "ok": true,
+    "step_times": [
+      36.69,
+      40.44,
+      41.81
+    ],
+    "tokens_per_s_last": 391.86032237689597,
+    "peak_footprint_gb": 19.789498288,
+    "framework_mem_gb": 18.81178112,
+    "swap_delta_mb": -224.0,
+    "error": null
+  },
+  {
+    "setup": "torch-fp32",
+    "micro_batch": 2,
+    "ok": true,
+    "step_times": [
+      43.83,
+      59.13,
+      61.8
+    ],
+    "tokens_per_s_last": 265.114274404282,
+    "peak_footprint_gb": 30.709696456,
+    "framework_mem_gb": 29.720707072,
+    "swap_delta_mb": 2045.06,
+    "error": null
+  },
+  {
+    "setup": "mlx-bf16",
+    "micro_batch": 1,
+    "ok": true,
+    "step_times": [
+      12.37,
+      10.19,
+      10.11
+    ],
+    "tokens_per_s_last": 1620.1267924280785,
+    "peak_footprint_gb": 10.098182064,
+    "framework_mem_gb": 8.92311464,
+    "swap_delta_mb": -1057.4399999999996,
+    "error": null
+  },
+  {
+    "setup": "mlx-bf16",
+    "micro_batch": 2,
+    "ok": true,
+    "step_times": [
+      10.05,
+      9.79,
+      10.53
+    ],
+    "tokens_per_s_last": 1556.0195407437625,
+    "peak_footprint_gb": 14.4006694,
+    "framework_mem_gb": 12.560556668,
+    "swap_delta_mb": -56.0,
+    "error": null
+  },
+  {
+    "setup": "mlx-bf16",
+    "micro_batch": 4,
+    "ok": true,
+    "step_times": [
+      10.71,
+      10.6,
+      10.93
+    ],
+    "tokens_per_s_last": 1499.5952173003814,
+    "peak_footprint_gb": 22.090565144,
+    "framework_mem_gb": 20.230394476,
+    "swap_delta_mb": -56.0,
+    "error": null
+  },
+  {
+    "setup": "mlx-bf16",
+    "micro_batch": 8,
+    "ok": false,
+    "step_times": [],
+    "tokens_per_s_last": null,
+    "peak_footprint_gb": null,
+    "framework_mem_gb": null,
+    "swap_delta_mb": null,
+    "error": [
+      "RuntimeError: [METAL] Command buffer execution failed: Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)."
+    ]
+  },
+  {
+    "setup": "torch-bf16",
+    "micro_batch": 1,
+    "ok": true,
+    "step_times": [
+      29.53,
+      28.78,
+      27.18
+    ],
+    "tokens_per_s_last": 602.7501080703248,
+    "peak_footprint_gb": 13.981074896,
+    "framework_mem_gb": 13.577289728,
+    "swap_delta_mb": -40.0,
+    "error": null
+  },
+  {
+    "setup": "torch-bf16",
+    "micro_batch": 2,
+    "ok": true,
+    "step_times": [
+      28.73,
+      27.97,
+      30.27
+    ],
+    "tokens_per_s_last": 541.2573846097762,
+    "peak_footprint_gb": 23.734240816,
+    "framework_mem_gb": 23.312859136,
+    "swap_delta_mb": -82.55999999999995,
+    "error": null
+  },
+  {
+    "setup": "torch-bf16",
+    "micro_batch": 4,
+    "ok": false,
+    "step_times": [],
+    "tokens_per_s_last": null,
+    "peak_footprint_gb": null,
+    "framework_mem_gb": null,
+    "swap_delta_mb": null,
+    "error": [
+      "stopped early: calibration had enough data"
+    ]
+  }
+]

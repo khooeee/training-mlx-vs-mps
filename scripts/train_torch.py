@@ -1,7 +1,7 @@
-"""Full-weight continued pretraining of Qwen3-0.6B-Base with PyTorch on MPS (HF transformers model code).
+"""Full-weight continued pretraining of Qwen3-0.6B-Base with PyTorch (HF transformers model code).
 
-Mirrors train_mlx.py step for step; see common.py for the shared config, data
-order and LR schedule.
+Runs on MPS (Apple Silicon) or CUDA (NVIDIA), whichever is available. Mirrors train_mlx.py
+step for step; see common.py for the shared config, data order and LR schedule.
 """
 
 import json
@@ -14,7 +14,17 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 import common as C
 
-DEVICE = "mps"
+DEVICE = "cuda" if torch.cuda.is_available() else "mps"
+
+
+def sync():
+    torch.cuda.synchronize() if DEVICE == "cuda" else torch.mps.synchronize()
+
+
+def framework_mem():
+    # CUDA: true peak of live tensors. MPS has no peak API: driver allocation at step end,
+    # which includes the allocator cache.
+    return torch.cuda.max_memory_allocated() if DEVICE == "cuda" else torch.mps.driver_allocated_memory()
 
 
 def build(dtype):
@@ -37,7 +47,7 @@ def make_optimizer(cfg, model):
         betas=(cfg.beta1, cfg.beta2),
         eps=cfg.eps,
         weight_decay=cfg.weight_decay,
-        fused=True,  # single-kernel update on MPS, the closest analog to MLX's compiled update
+        fused=True,  # single-kernel update, the closest analog to MLX's compiled update
     )
 
 
@@ -48,13 +58,19 @@ def to_device(a):
 def main():
     args, cfg = C.parse_args("torch")
     n_steps = args.max_steps or cfg.total_steps
+    if cfg.tf32 and DEVICE != "cuda":
+        raise SystemExit("--tf32: PyTorch has no TF32 mode on MPS (fp32 matmuls are always full precision)")
+    torch.set_float32_matmul_precision("high" if cfg.tf32 else "highest")
 
     model = build(cfg.dtype)
     optimizer = make_optimizer(cfg, model)
     batches = C.Batches(cfg, n_steps)
+    meter = C.MemoryMeter()
 
     log = C.RunLog(args.run_name, {
         "framework": "torch", "torch": torch.__version__, "transformers": transformers.__version__,
+        "device": DEVICE, "float32_matmul_precision": torch.get_float32_matmul_precision(),
+        **({"cuda": torch.version.cuda} if DEVICE == "cuda" else {}),
         **C.system_info(), **vars(cfg), "grad_accum": cfg.grad_accum, "n_steps": n_steps,
         "swap_used_mb_start": C.swap_used_mb(), "thermal_start": C.thermal_state(),
     })
@@ -74,21 +90,20 @@ def main():
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
-        torch.mps.synchronize()
+        sync()
         step_time = time.perf_counter() - t0
 
-        cur_fp, peak_fp = C.footprint()
+        cur_mem, peak_mem = meter.sample()
         rec = {
             "step": step, "loss": loss_sum.item() / cfg.grad_accum, "lr": lr,
             "grad_norm": norm.item(), "step_time": step_time, "tokens": cfg.tokens_per_step,
-            "footprint": cur_fp, "peak_footprint": peak_fp,
-            "framework_peak_mem": torch.mps.driver_allocated_memory(),  # sampled at step end, not a true peak
+            "footprint": cur_mem, "peak_footprint": peak_mem, "framework_peak_mem": framework_mem(),
         }
         records.append(rec)
         log.log(**rec)
         print(f"step {step:4d} loss {rec['loss']:.4f} gnorm {rec['grad_norm']:.3f} "
               f"{step_time:.2f}s {cfg.tokens_per_step / step_time:.0f} tok/s "
-              f"peak {peak_fp / 1e9:.1f}GB", flush=True)
+              f"peak {peak_mem / 1e9:.1f}GB", flush=True)
 
     summary = {**C.summarize(records), "swap_used_mb_end": C.swap_used_mb(), "thermal_end": C.thermal_state()}
     if args.save:

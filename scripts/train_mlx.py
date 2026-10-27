@@ -6,13 +6,14 @@ order and LR schedule.
 
 import json
 import os
+import sys
 import time
 from functools import partial
 
 # On M5 GPUs MLX runs float32 matmuls as TF32 by default (~2.5x faster, ~1e-3 relative
-# error). PyTorch MPS has no TF32 mode, so default to true fp32 for a like-for-like
-# comparison; run with MLX_ENABLE_TF32=1 to measure MLX's default behaviour.
-os.environ.setdefault("MLX_ENABLE_TF32", "0")
+# error). PyTorch MPS has no TF32 mode, so use true fp32 unless --tf32 is passed. MLX reads
+# the variable when it loads, so this has to happen before the import.
+os.environ["MLX_ENABLE_TF32"] = "1" if "--tf32" in sys.argv else "0"
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -84,6 +85,7 @@ def main():
     optimizer = make_optimizer(cfg, model)
     micro_step, update = make_step_fns(cfg, model, optimizer)
     batches = C.Batches(cfg, n_steps)
+    meter = C.MemoryMeter()
 
     log = C.RunLog(args.run_name, {
         "framework": "mlx", "mlx": mx.__version__, "mlx_lm": mlx_lm.__version__,
@@ -109,17 +111,17 @@ def main():
         clear_cache()
         step_time = time.perf_counter() - t0
 
-        cur_fp, peak_fp = C.footprint()
+        cur_mem, peak_mem = meter.sample()
         rec = {
             "step": step, "loss": sum(l.item() for l in losses) / len(losses), "lr": lr,
             "grad_norm": norm.item(), "step_time": step_time, "tokens": cfg.tokens_per_step,
-            "footprint": cur_fp, "peak_footprint": peak_fp, "framework_peak_mem": mx.get_peak_memory(),
+            "footprint": cur_mem, "peak_footprint": peak_mem, "framework_peak_mem": mx.get_peak_memory(),
         }
         records.append(rec)
         log.log(**rec)
         print(f"step {step:4d} loss {rec['loss']:.4f} gnorm {rec['grad_norm']:.3f} "
               f"{step_time:.2f}s {cfg.tokens_per_step / step_time:.0f} tok/s "
-              f"peak {peak_fp / 1e9:.1f}GB", flush=True)
+              f"peak {peak_mem / 1e9:.1f}GB", flush=True)
 
     summary = {**C.summarize(records), "swap_used_mb_end": C.swap_used_mb(), "thermal_end": C.thermal_state()}
     if args.save:
