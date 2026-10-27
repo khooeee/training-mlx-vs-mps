@@ -1,0 +1,12 @@
+{
+  "steps": 3,
+  "steady_steps": 3,
+  "first_step_s": 28.72877929196693,
+  "step_time_median_s": 28.72877929196693,
+  "step_time_p90_s": 29.961961258435622,
+  "tokens_per_s": 570.2992053192198,
+  "peak_footprint_gb": 23.734240816,
+  "final_loss": 1.548304796218872,
+  "swap_used_mb_end": 3309.44,
+  "thermal_end": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded"
+}

@@ -1,4 +1,4 @@
-# Exact environment that produced the results (uv pip freeze, Python 3.13.5, macOS 27.0.1, Apple M5)
+# Exact macOS environment that produced the M5 results (uv pip freeze; Python 3.13.5, macOS 27.0.1, Apple M5)
 annotated-doc==0.0.5
 anyio==4.15.1
 click==8.5.0

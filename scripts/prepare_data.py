@@ -6,10 +6,13 @@ can run with `python -I`.
 
 Outputs (data/):
   train.npy, val_arxiv.npy, val_wikitext.npy  uint32 [rows, SEQ_LEN + 1]
-  meta.json                                    counts and the paper ids in each split
+  meta.json                                    counts, sha256 of each array, paper ids per split
+
+Compare the sha256 values in meta.json across machines to confirm identical training tokens.
 """
 
 import gzip
+import hashlib
 import json
 from pathlib import Path
 
@@ -67,20 +70,26 @@ def main():
     wiki_toks = tok("".join(wiki))["input_ids"]
     val_wiki = pack([wiki_toks])
 
-    np.save(OUT / "train.npy", train)
-    np.save(OUT / "val_arxiv.npy", val)
-    np.save(OUT / "val_wikitext.npy", val_wiki)
+    arrays = {"train": train, "val_arxiv": val, "val_wikitext": val_wiki}
+    for name, arr in arrays.items():
+        np.save(OUT / f"{name}.npy", arr)
     meta = {
         "tokenizer": str(MODEL.name),
         "seq_len": SEQ_LEN,
         "row_len": ROW,
         "eos_token_id": eos,
-        "rows": {"train": len(train), "val_arxiv": len(val), "val_wikitext": len(val_wiki)},
-        "tokens": {"train": int(train.size), "val_arxiv": int(val.size), "val_wikitext": int(val_wiki.size)},
+        "rows": {k: len(a) for k, a in arrays.items()},
+        "tokens": {k: int(a.size) for k, a in arrays.items()},
+        "sha256": {k: sha256(a) for k, a in arrays.items()},
         "papers": {"train": train_ids, "val_arxiv": val_ids},
     }
     (OUT / "meta.json").write_text(json.dumps(meta, indent=1))
-    print(json.dumps({k: meta[k] for k in ("rows", "tokens")}))
+    print(json.dumps({k: meta[k] for k in ("rows", "tokens", "sha256")}, indent=1))
+
+
+def sha256(arr):
+    """Checksum of the token values themselves (uint32, C order), independent of the .npy header."""
+    return hashlib.sha256(np.ascontiguousarray(arr, dtype=np.uint32).tobytes()).hexdigest()
 
 
 if __name__ == "__main__":

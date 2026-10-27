@@ -9,7 +9,7 @@ models/
 checkpoints/
 
 # Raw trainer stdout (the per-step data lives in runs/<run>/log.jsonl, which is committed)
-runs/logs/*.out
+runs/*/logs/*.out
 
 # Local Claude Code permissions
 .claude/settings.local.json
