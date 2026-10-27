@@ -1,0 +1,15 @@
+# Environment
+.venv/
+__pycache__/
+.DS_Store
+
+# Large, regenerable: scripts/download.py + scripts/prepare_data.py, and the training runs
+data/
+models/
+checkpoints/
+
+# Raw trainer stdout (the per-step data lives in runs/<run>/log.jsonl, which is committed)
+runs/logs/*.out
+
+# Local Claude Code permissions
+.claude/settings.local.json

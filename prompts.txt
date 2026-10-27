@@ -1,0 +1,8 @@
+# One prompt per line; \n becomes a newline. Base models continue text, so start a sentence.
+Abstract\nWe study the problem of
+In this paper, we propose a novel method for
+1 Introduction\nLarge language models have
+Theorem 1. Let G be a finite group and
+The cosmic microwave background
+We evaluate our approach on three benchmark datasets and
+Acknowledgments\nWe thank

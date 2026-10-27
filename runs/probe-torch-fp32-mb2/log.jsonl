@@ -1,0 +1,3 @@
+{"step": 0, "loss": 1.5985515117645264, "lr": 4.0000000000000003e-07, "grad_norm": 2.28029203414917, "step_time": 43.83298487495631, "tokens": 16384, "footprint": 26942228424, "peak_footprint": 28341159880, "framework_peak_mem": 27371896832}
+{"step": 1, "loss": 1.6829581260681152, "lr": 8.000000000000001e-07, "grad_norm": 2.5880610942840576, "step_time": 59.126721290987916, "tokens": 16384, "footprint": 28703950336, "peak_footprint": 30709696456, "framework_peak_mem": 29720707072}
+{"step": 2, "loss": 1.5458121299743652, "lr": 1.2000000000000002e-06, "grad_norm": 2.414185047149658, "step_time": 61.79976554191671, "tokens": 16384, "footprint": 28704114176, "peak_footprint": 30709696456, "framework_peak_mem": 29687152640}
