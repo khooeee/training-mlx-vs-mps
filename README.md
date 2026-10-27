@@ -71,6 +71,33 @@ is in the backward pass: about 1.7× slower than MLX in fp32 and about 3× slowe
 backward on MPS is slow enough that eager attention is faster overall. The training runs keep HF's default
 (SDPA). Eager would make PyTorch bf16 roughly 15% faster, which doesn't change the conclusion.
 
+### Reference point: RTX 5090 Laptop GPU (PyTorch CUDA)
+
+The same PyTorch runs on a System76 Bonobo WS laptop: RTX 5090 Laptop GPU (24 GB, 150 W default power
+limit, 175 W with Dynamic Boost), Intel Core Ultra 9 275HX, Linux 7.2, driver 595.104.02, CUDA 13.0, power
+profile "Performance", on AC. Same torch (2.14.1, `+cu130` build), transformers and other package versions as
+the M5 (`requirements-cuda.txt`), and the same token arrays (sha256 match). This compares hardware, not frameworks:
+MLX isn't run here.
+Every table and figure: [runs/rtx-5090-laptop-gpu-24gb/REPORT.md](runs/rtx-5090-laptop-gpu-24gb/REPORT.md).
+
+| | 5090 Laptop, PyTorch CUDA | M5 Air, PyTorch MPS | M5 Air, MLX | 5090 / best on M5 |
+|---|---|---|---|---|
+| **fp32**, sustained tokens/s | 3,664 | 399 | 528 | **6.9×** |
+| **bf16**, sustained tokens/s | 10,033 | 673 | 1,655 | **6.1×** |
+| fp32 with TF32 matmuls, tokens/s | 5,112 | (no TF32 on MPS) | 1,049 | **4.9×** |
+| Wall time for 1.6M tokens, fp32 / bf16 / TF32 | 7.4 / 2.7 / 5.3 min | 68 / 40 min / – | 53 / 16 / 25 min | |
+| Peak memory, fp32 / bf16 (GPU memory per nvidia-smi) | 15.4 / 9.6 GB | | | |
+| Final training loss, fp32 / bf16 / TF32 | 1.7365 / 1.7531 / 1.7362 | 1.7364 / 1.7532 / – | 1.7363 / 1.7535 / 1.7362 | |
+
+- **Same training, different hardware.** Per-step loss matches the M5's PyTorch runs to within 0.0009 (fp32)
+  and 0.0008 (bf16), the same agreement as MLX vs PyTorch on the M5.
+- **TF32 is 1.40× faster than true fp32 on CUDA** and reaches the same loss (1.7362 vs 1.7365), matching what
+  MLX's TF32 showed on the M5.
+- **No throttling.** With a fan, the GPU settled at 70–74 °C and the first step was as fast as the median.
+  Power stayed at 142–147 W, below the 150 W default, so Dynamic Boost never engaged.
+- **Micro-batch 1 understates the 5090.** It matches the M5 runs, but leaves the GPU underused; the
+  matmul check reaches 20 TFLOPS fp32 and 28 bf16. A larger micro-batch would widen the gap.
+
 ## What "apples to apples" means here
 
 Everything that isn't the framework is held identical. Each framework still runs the model its normal
@@ -191,8 +218,9 @@ every run on every machine.
 ```bash
 uv venv --python 3.13 .venv
 # Pick the CUDA wheel index for your driver from pytorch.org (RTX 50-series needs a CUDA 12.8+ build)
-uv pip install --python .venv/bin/python torch --index-url https://download.pytorch.org/whl/<cuXXX>
-uv pip install --python .venv/bin/python transformers==5.21.0 huggingface_hub numpy pyarrow matplotlib
+uv pip install --python .venv/bin/python torch==2.14.1 --index-url https://download.pytorch.org/whl/<cuXXX>
+# Everything else at the M5's exact versions (or: uv pip install -r requirements-cuda.txt, the RTX 5090 run's env)
+uv pip install --python .venv/bin/python -r <(grep -vE '^#|^mlx|^torch==' requirements-macos.txt)
 uv pip freeze --python .venv/bin/python > requirements-cuda.txt
 .venv/bin/python scripts/download.py && .venv/bin/python -I scripts/prepare_data.py
 jq .sha256 data/meta.json                    # must match the M5 checksums below
@@ -202,7 +230,8 @@ jq .sha256 data/meta.json                    # must match the M5 checksums below
 systemd-inhibit --what=sleep:idle scripts/run_all.sh 1 1 100
 ```
 
-transformers is pinned to the M5 run's version so the model code is the same. For a laptop GPU, record the power mode. The GPU power limit depends on the laptop and is logged in
+All packages are pinned to the M5 run's versions so the model code is the same. The RTX 5090 Laptop results
+used `cu130` and `scripts/run_all.sh 1 1 100` (about 25 minutes including cooldowns). For a laptop GPU, record the power mode. The GPU power limit depends on the laptop and is logged in
 each run's `config.json` along with the driver and CUDA versions.
 
 Data checksums from the M5 (`data/` isn't committed):
@@ -276,6 +305,7 @@ The result holds for this setup only:
 - Hand-written training loops. The stock trainers (`mlx_lm.lora --fine-tune-type full`, the HF Trainer)
   differ in batching, padding and logging overhead.
 - PyTorch without `torch.compile`.
+- The RTX 5090 numbers are PyTorch only: they compare hardware, not frameworks. MLX's CUDA backend wasn't tested.
 
 A larger model, a different batch size or newer versions could change the gap. Both frameworks have been
 improving quickly.
