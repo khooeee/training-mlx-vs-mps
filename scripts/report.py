@@ -145,9 +145,12 @@ def fmt(v, spec):
 
 
 def machine_report():
-    FIG.mkdir(parents=True, exist_ok=True)
     runs = {n: load_run(C.RUNS, n) for n in C.ALL_RUNS}
     present = [n for n in C.ALL_RUNS if runs[n]]
+    if not present:
+        print(f"no finished runs for {C.MACHINE}; only rebuilding runs/COMPARISON.md")
+        return
+    FIG.mkdir(parents=True, exist_ok=True)
     plot_losses(runs)
     plot_loss_diff(runs)
     plot_throughput(runs)
